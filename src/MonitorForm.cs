@@ -415,12 +415,24 @@ namespace GameMonitor
         }
 
         // ================= 数据 =================
+        bool _collecting;
         void OnTick(object sender, EventArgs e)
         {
             if (!Visible) return;
             _tick++;
-            if (_col != null) { _cur = _col.CollectOnce(); NotifyThrottle(); UpdateProcTargets(); }
-            Invalidate();
+            if (_col != null && !_collecting)
+            {
+                _collecting = true;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    Sample s = _col.CollectOnce();
+                    try { BeginInvoke((Action)delegate
+                    {
+                        _cur = s; NotifyThrottle(); UpdateProcTargets(); Invalidate();
+                        _collecting = false;
+                    }); } catch { _collecting = false; }
+                });
+            }
             if (_animTimer != null && !_animTimer.Enabled) _animTimer.Start();
         }
 
@@ -690,7 +702,7 @@ namespace GameMonitor
             // 图例从右往左: 峰值功耗 -> 当前功耗% -> 峰值温度 -> 当前温度
             float powPct = (_col.GpuPowerLimitW > 0 && _cur.GpuPower > 0) ? Math.Min(100f, _cur.GpuPower / _col.GpuPowerLimitW * 100f) : 0f;
             Color powC = Color.FromArgb(255, 150, 60);
-            float lx = x + _cardW - _cPad;
+            float lx = x + _ccw - _cPad;
             if (_col.PeakGpuPower > 0)
             { string pk2 = "峰值功耗 " + ((int)_col.PeakGpuPower).ToString() + "W"; SizeF p2s = g.MeasureString(pk2, _fMicro); lx -= p2s.Width; g.DrawString(pk2, _fMicro, new SolidBrush(Color.FromArgb(200, powC)), lx, tY + (int)(3 * _sf)); lx -= 10 * _sf; }
             if (_cur.GpuPower > 0)
@@ -730,7 +742,7 @@ namespace GameMonitor
             SizeF tw = g.MeasureString(tag, _fMicro); int bw2 = (int)(tw.Width + 14 * _sf);
             int badgeY = y + _cPad + (int)(3 * _sf), badgeH = _hTitle + (int)(6 * _sf);
             using (GraphicsPath bp = RoundRect(x + _ccw - _cPad - bw2, badgeY, bw2, badgeH, 5 * _sf))
-            { g.FillPath(new SolidBrush(Color.FromArgb(hasTemp ? 48 : 30, tagColor)), bp); g.DrawString(tag, _fMicro, new SolidBrush(tagColor), x + _cardW - _cPad - bw2 + 7 * _sf, badgeY + (badgeH - _hMicro) / 2); }
+            { g.FillPath(new SolidBrush(Color.FromArgb(hasTemp ? 48 : 30, tagColor)), bp); g.DrawString(tag, _fMicro, new SolidBrush(tagColor), x + _ccw - _cPad - bw2 + 7 * _sf, badgeY + (badgeH - _hMicro) / 2); }
 
             int dataY = y + _cPad + _rTitleRow + _cGap;
             BigPct(g, x + _cPad, dataY, _dispCpuLoad, Theme.Cpu);
@@ -940,7 +952,7 @@ namespace GameMonitor
             else g.DrawString("—— 一切正常 ——", _fTiny, new SolidBrush(Color.FromArgb(140, Theme.Sub)), x + _cPad, listTop + _rEvtRow / 2 - _hTiny / 2);
             string hint = "点击查看详情 (" + evs.Count + ")";
             SizeF hs = g.MeasureString(hint, _fMicro);
-            g.DrawString(hint, _fMicro, new SolidBrush(Color.FromArgb(100, Theme.Sub)), x + _cardW - _cPad - hs.Width, listTop + _rEvtRow / 2 - _hMicro / 2);
+            g.DrawString(hint, _fMicro, new SolidBrush(Color.FromArgb(100, Theme.Sub)), x + _ccw - _cPad - hs.Width, listTop + _rEvtRow / 2 - _hMicro / 2);
         }
 
         void DrawEvtLegend(Graphics g)
