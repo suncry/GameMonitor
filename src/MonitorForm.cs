@@ -169,13 +169,15 @@ namespace GameMonitor
 
         protected override CreateParams CreateParams
         {
-            get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x8; cp.Style |= 0x40000 | 0x10000; return cp; }
+            get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x8 | 0x02000000; cp.Style |= 0x40000 | 0x10000; return cp; }
         }
 
         // ---- Snap Layout 支持 + 四周缩放 ----
         protected override void WndProc(ref Message m)
         {
             const int WM_NCCALCSIZE = 0x83;
+            const int WM_NCPAINT = 0x85;
+            const int WM_ERASEBKGND = 0x14;
             const int WM_NCHITTEST = 0x84;
             const int WM_NCLBUTTONDOWN = 0xA1;
             const int WM_SYSCOMMAND = 0x112;
@@ -187,6 +189,10 @@ namespace GameMonitor
 
             // WS_THICKFRAME 会划出非客户区边框; 返回 0 让客户区 = 整个窗口 (无边框外观)
             if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero) { m.Result = IntPtr.Zero; return; }
+            // 阻止系统绘制非客户区 (消除白闪)
+            if (m.Msg == WM_NCPAINT) { m.Result = IntPtr.Zero; return; }
+            // 阻止系统擦除背景 (消除白闪)
+            if (m.Msg == WM_ERASEBKGND) { m.Result = (IntPtr)1; return; }
 
             // 非客户端按钮点击 (标题栏按钮改为 NC hit-test 后 OnMouseDown 不会触发)
             if (m.Msg == WM_NCLBUTTONDOWN)
@@ -345,11 +351,12 @@ namespace GameMonitor
 
             // 事件卡: 仅 1 行
             _evtH = _cPad * 2 + _rTitleRow + (int)(4 * _sf) + _rEvtRow;
-            _footH = _hMicro + (int)(6 * _sf);
+            _footH = _titleBarH;   // 底部区域与标题栏等高 (对称)
 
-            // 堆叠
+            // 堆叠: 多余高度平均分到每个卡片高度 (卡片撑满窗口, gap 固定)
             int gap = Math.Max(6, (int)(10 * _sf));
             int fullW = w - _padX * 2;
+            _footY = h - _titleBarH;   // Footer 贴底, 高度 = 标题栏
 
             if (_landscape)
             {
@@ -360,32 +367,64 @@ namespace GameMonitor
                 _loadCX = _padX + halfW + gap;   _loadCW = halfW;
                 _evtCX = _padX;                 _evtCW = fullW;
                 // Row 1: GPU | CPU, Row 2: RAM | Load, Row 3: Events
+                _loadH = Math.Max(_ramH, (int)(180 * _sf));
+                // 可用高度 = 窗口高 - 标题栏 - Footer - 3*gap, 多余部分按比例分到3行卡片
+                int availH = h - _titleBarH - _titleBarH - gap * 3;
+                int row1H0 = Math.Max(_gpuH, _cpuH);
+                int row2H0 = Math.Max(_ramH, _loadH);
+                int contentH0 = row1H0 + row2H0 + _evtH;
+                int extra = availH - contentH0;
+                if (extra > 0)
+                {
+                    int add1 = (int)((float)extra * row1H0 / contentH0);
+                    int add2 = (int)((float)extra * row2H0 / contentH0);
+                    int add3 = extra - add1 - add2;
+                    _gpuH += add1; _cpuH += add1;
+                    _ramH += add2; _loadH += add2;
+                    _evtH += add3;
+                }
+                // 同行卡片强制等高
+                int row1H = Math.Max(_gpuH, _cpuH);
+                _gpuH = _cpuH = row1H;
+                int row2H = Math.Max(_ramH, _loadH);
+                _ramH = _loadH = row2H;
                 int y2 = _titleBarH;
                 _gpuY = y2; _cpuY = y2;
-                int row1H = Math.Max(_gpuH, _cpuH);
-                y2 += row1H + gap;
+                y2 += Math.Max(_gpuH, _cpuH) + gap;
                 _ramY = y2; _loadY = y2;
-                _loadH = Math.Max(_ramH, (int)(180 * _sf));
-                int row2H = Math.Max(_ramH, _loadH);
-                y2 += row2H + gap;
+                y2 += Math.Max(_ramH, _loadH) + gap;
                 _evtY = y2;
-                _footY = _evtY + _evtH + Math.Max(4, (int)(6 * _sf));
             }
             else
             {
                 _gpuCX = _cpuCX = _ramCX = _loadCX = _evtCX = _padX;
                 _gpuCW = _cpuCW = _ramCW = _loadCW = _evtCW = fullW;
+                _loadH = _gpuH;
+                // 多余高度按比例分到5个卡片
+                int contentH0 = _gpuH + _cpuH + _ramH + _loadH + _evtH;
+                int availH = h - _titleBarH - _titleBarH - gap * 5;
+                int extra = availH - contentH0;
+                if (extra > 0)
+                {
+                    int addG = (int)((float)extra * _gpuH / contentH0);
+                    int addC = (int)((float)extra * _cpuH / contentH0);
+                    int addR = (int)((float)extra * _ramH / contentH0);
+                    int addL = (int)((float)extra * _loadH / contentH0);
+                    int addE = extra - addG - addC - addR - addL;
+                    _gpuH += addG; _cpuH += addC; _ramH += addR; _loadH += addL; _evtH += addE;
+                    _loadH = _gpuH;
+                }
                 int y2 = _titleBarH;
                 _gpuY = y2; y2 += _gpuH + gap;
                 _cpuY = y2; y2 += _cpuH + gap;
                 _ramY = y2; y2 += _ramH + gap;
-                _loadY = y2; _loadH = _gpuH;
-                _evtY = _loadY + _loadH + gap;
-                _footY = _evtY + _evtH + Math.Max(4, (int)(6 * _sf));
+                _loadY = y2; y2 += _loadH + gap;
+                _evtY = y2;
             }
 
-            int totalBottom = _footY + _footH;
-            if (totalBottom > h) { overflow = totalBottom - h; return false; }
+            // 内容不能侵入底部 Footer 区域
+            int contentBottom = _evtY + _evtH;
+            if (contentBottom > _footY) { overflow = contentBottom - _footY; return false; }
             return true;
         }
 
@@ -719,7 +758,8 @@ namespace GameMonitor
             SizeF cus = g.MeasureString(curTxt, _fMicro); lx -= cus.Width;
             g.FillEllipse(new SolidBrush(TempColor(_cur.GpuTemp)), lx, tY + (int)(6 * _sf), Math.Max(4, (int)(5 * _sf)), Math.Max(4, (int)(5 * _sf)));
             g.DrawString(curTxt, _fMicro, new SolidBrush(Theme.Main), lx + Math.Max(4, (int)(5 * _sf)) + 4, tY + (int)(3 * _sf));
-            int gy2 = tY + _hLabel + (int)(8 * _sf), gh2 = (int)(58 * _sf), gx2 = x + _cPad, gw2 = _ccw - _cPad * 2;
+            int gy2 = tY + _hLabel + (int)(8 * _sf), gx2 = x + _cPad, gw2 = _ccw - _cPad * 2;
+            int gh2 = y + _gpuH - _cPad - gy2; if (gh2 < (int)(30 * _sf)) gh2 = (int)(30 * _sf);   // 图表高度填满卡片剩余空间
             float wy = gy2 + gh2 * (1f - 85f / 95f);
             using (Pen wp = new Pen(Color.FromArgb(160, Theme.Danger)) { DashStyle = DashStyle.Dash }) g.DrawLine(wp, gx2, wy, gx2 + gw2, wy);
             using (Pen gp = new Pen(Theme.Grid)) { g.DrawLine(gp, gx2, gy2, gx2 + gw2, gy2); g.DrawLine(gp, gx2, gy2 + gh2, gx2 + gw2, gy2 + gh2); }
@@ -756,7 +796,9 @@ namespace GameMonitor
             else if (_col.PeakCpuClock > 0) Metric(g, col2, row2, "峰值频率", ((int)_col.PeakCpuClock).ToString() + " MHz", Theme.Main);
 
             int chartTop = dataY + Math.Max(_rBigRow, _rMetricRow * 2 + rowGap) + _cGap;
-            DrawCoreBars(g, x, chartTop);
+            int hintH = _hMicro + (int)(4 * _sf);
+            int barZoneBottom = y + _cpuH - _cPad - hintH;
+            DrawCoreBars(g, x, chartTop, barZoneBottom);
             int hintY = y + _cpuH - _cPad - _hMicro;
             string hint = hasTemp ? "LHM 实时读数"
                 : (_col.CpuTempAvailable
@@ -766,12 +808,12 @@ namespace GameMonitor
         }
 
         // ---- 8 核柱状图 (无序号) ----
-        void DrawCoreBars(Graphics g, int x, int chartTop)
+        void DrawCoreBars(Graphics g, int x, int chartTop, int barZoneBottom)
         {
             g.DrawString("核心负载", _fMicro, new SolidBrush(Theme.Sub), x + _cPad, chartTop);
             int numTop = chartTop + _hMicro + Math.Max(3, (int)(3 * _sf));
             int barZoneTop = numTop + _hMicro + Math.Max(2, (int)(2 * _sf));
-            int barZoneH = (int)(40 * _sf);
+            int barZoneH = barZoneBottom - barZoneTop; if (barZoneH < (int)(30 * _sf)) barZoneH = (int)(30 * _sf);
             int cells = Math.Min(8, _col.CoreLoads.Length); if (cells <= 0) return;
             int gapC = Math.Max(4, (int)(7 * _sf));
             int bw = (_ccw - _cPad * 2 - gapC * (cells - 1)) / cells;
@@ -810,20 +852,24 @@ namespace GameMonitor
             int labelY = dataY + Math.Max(_rBigRow, _rMetricRow * 2 + rowGap) + _cGap;
             g.DrawString("内存占用 Top 10", _fLabel, new SolidBrush(Theme.Main), x + _cPad, labelY);
             int listY = labelY + _hLabel + (int)(4 * _sf);
-            DrawMemApps(g, x + _cPad, listY, _ccw - _cPad * 2);
+            int listBottom = y + _ramH - _cPad;
+            DrawMemApps(g, x + _cPad, listY, _ccw - _cPad * 2, listBottom);
         }
 
-        void DrawMemApps(Graphics g, int x, int y, int w)
+        void DrawMemApps(Graphics g, int x, int y, int w, int bottomY)
         {
             if (_dispProcs.Count == 0) { g.DrawString("采样中...", _fMicro, new SolidBrush(Theme.Sub), x, y); return; }
             float maxMem = 0;
             for (int i = 0; i < _dispProcs.Count; i++) if (_dispProcs[i].DispMem > maxMem) maxMem = _dispProcs[i].DispMem;
             if (maxMem <= 0) return;
+            // 行高自适应: 填满可用高度
+            int availH = bottomY - y;
             int rowH = Math.Max(14, (int)(16 * _sf));
-            int iconSz = (int)(14 * _sf);
+            if (availH > 10 * rowH) rowH = availH / 10;
+            int iconSz = Math.Max(14, (int)(rowH * 0.7f));
             int nameW = (int)(100 * _sf);
             int valW = (int)(55 * _sf);
-            int barH = Math.Max(3, (int)(5 * _sf));
+            int barH = Math.Max(3, (int)(rowH * 0.4f));
             int barX = x + iconSz + (int)(6 * _sf) + nameW + (int)(6 * _sf);
             int barW = w - (iconSz + (int)(6 * _sf) + nameW + (int)(6 * _sf) + valW + (int)(6 * _sf));
             if (barW < 20) barW = 20;
@@ -860,7 +906,7 @@ namespace GameMonitor
             g.DrawString(title, _fLabel, new SolidBrush(Theme.Main), x + _cPad, y + _cPad + (int)(2 * _sf));
         }
         int ChartGy(int cardY) { return cardY + _cPad + _hLabel + Math.Max(6, (int)(8 * _sf)); }
-        int ChartGh(int cardH) { return cardH - _cPad - _hLabel - Math.Max(6, (int)(8 * _sf)) - (int)(10 * _sf); }
+        int ChartGh(int cardH) { return cardH - _cPad * 2 - _hLabel - Math.Max(6, (int)(8 * _sf)); }
         int ChartGx() { return _loadCX + _cPad; }
         int ChartGw() { return _loadCW - _cPad * 2; }
 
@@ -964,7 +1010,7 @@ namespace GameMonitor
 
         void DrawFoot(Graphics g)
         {
-            int ty = _footY + (int)(7 * _sf);
+            int ty = _footY + (_footH - _hMicro) / 2;   // 垂直居中于底部区域
             string self = string.Format("CPU {0:0.0}%  内存 {1}MB", _cur.SelfCpu, _cur.SelfMemMB);
             g.DrawString(self, _fMicro, new SolidBrush(Theme.Sub), _padX, ty);
             // 右侧: 游戏识别 + 时长 (无游戏时显示会话时长)
