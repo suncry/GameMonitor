@@ -134,9 +134,9 @@ namespace GameMonitor
 
         public MonitorForm()
         {
-            Text = "游戏性能监控";
+            Text = "GameMonitor";
             FormBorderStyle = FormBorderStyle.None;
-            ShowInTaskbar = false;
+            ShowInTaskbar = true;
             StartPosition = FormStartPosition.Manual;
             BackColor = Theme.Bg; TopMost = true; DoubleBuffered = true;
             MinimumSize = new Size(340, 780);
@@ -162,13 +162,66 @@ namespace GameMonitor
 
         protected override CreateParams CreateParams
         {
-            get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x8 | 0x80 | 0x08000000; return cp; }
+            get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x8; return cp; }
         }
 
-        // ---- 四周缩放 ----
+        // ---- Snap Layout 支持 + 四周缩放 ----
         protected override void WndProc(ref Message m)
         {
             const int WM_NCHITTEST = 0x84;
+            const int WM_NCLBUTTONDOWN = 0xA1;
+            const int WM_SYSCOMMAND = 0x112;
+            const int WM_NCMOUSEMOVE = 0xA0;
+            const int WM_NCMOUSELEAVE = 0x2A2;
+            const int WM_SETCURSOR = 0x20;
+            const int SC_MAXIMIZE = 0xF030;
+            const int HTMINBUTTON = 8, HTMAXBUTTON = 9, HTCLOSE = 20;
+
+            // 非客户端按钮点击 (标题栏按钮改为 NC hit-test 后 OnMouseDown 不会触发)
+            if (m.Msg == WM_NCLBUTTONDOWN)
+            {
+                int ht = (int)m.WParam;
+                if (ht == HTMAXBUTTON) { ToggleFullscreen(); return; }
+                if (ht == HTMINBUTTON) { Visible = false; return; }
+                if (ht == HTCLOSE) { Close(); return; }
+            }
+
+            // 双击标题栏 → 系统发 SC_MAXIMIZE → 拦截为全屏切换
+            if (m.Msg == WM_SYSCOMMAND && (int)m.WParam == SC_MAXIMIZE) { ToggleFullscreen(); return; }
+
+            // 非客户端 hover: 更新按钮高亮 (WM_NCHITTEST 返回 NC 后 OnMouseMove 不触发)
+            if (m.Msg == WM_NCMOUSEMOVE && !_clickThrough && !_fullscreen)
+            {
+                Point p = PointToClient(Cursor.Position);
+                bool hMin = _btnMin.Contains(p), hFull = _btnFull.Contains(p), hClose = _btnClose.Contains(p);
+                if (hMin != _hoverMin || hFull != _hoverFull || hClose != _hoverClose)
+                {
+                    _hoverMin = hMin; _hoverFull = hFull; _hoverClose = hClose;
+                    Invalidate(new Rectangle(0, 0, ClientSize.Width, _titleBarH));
+                }
+                Native.TRACKMOUSEEVENT tme = new Native.TRACKMOUSEEVENT();
+                tme.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(tme);
+                tme.dwFlags = Native.TME_NONCLIENT | Native.TME_LEAVE;
+                tme.hwndTrack = Handle;
+                Native.TrackMouseEvent(ref tme);
+            }
+            if (m.Msg == WM_NCMOUSELEAVE)
+            {
+                if (_hoverMin || _hoverFull || _hoverClose)
+                {
+                    _hoverMin = false; _hoverFull = false; _hoverClose = false;
+                    Invalidate(new Rectangle(0, 0, ClientSize.Width, _titleBarH));
+                }
+            }
+
+            // NC 按钮: 手型光标
+            if (m.Msg == WM_SETCURSOR)
+            {
+                int ht = (int)((long)m.LParam & 0xFFFF);
+                if (ht == HTMINBUTTON || ht == HTMAXBUTTON || ht == HTCLOSE)
+                { Cursor.Current = Cursors.Hand; m.Result = (IntPtr)1; return; }
+            }
+
             if (m.Msg == WM_NCHITTEST && !_clickThrough && !_fullscreen)
             {
                 base.WndProc(ref m);
@@ -177,8 +230,15 @@ namespace GameMonitor
                     Point p = PointToClient(Cursor.Position);
                     int e = Math.Max(6, (int)(8 * _sf));
                     int w = ClientSize.Width, h = ClientSize.Height;
-                    // 标题栏按钮区域不缩放
-                    if (p.Y < _titleBarH && p.X >= _btnMin.X - (int)(4 * _sf)) return;
+                    // 标题栏: 按钮 → NC hit-test (启用 Snap Layout flyout), 其余 → 可拖动
+                    if (p.Y < _titleBarH)
+                    {
+                        if (_btnMin.Contains(p)) { m.Result = (IntPtr)HTMINBUTTON; return; }
+                        if (_btnFull.Contains(p)) { m.Result = (IntPtr)HTMAXBUTTON; return; }
+                        if (_btnClose.Contains(p)) { m.Result = (IntPtr)HTCLOSE; return; }
+                        if (p.X < _btnMin.X - (int)(4 * _sf)) { m.Result = (IntPtr)2; return; } // HTCAPTION
+                        return;
+                    }
                     // 四角
                     if (p.X <= e && p.Y <= e) { m.Result = (IntPtr)13; return; }
                     if (p.X >= w - e && p.Y <= e) { m.Result = (IntPtr)14; return; }
@@ -885,12 +945,9 @@ namespace GameMonitor
             base.OnMouseDown(e);
             if (e.Button == MouseButtons.Left)
             {
-                if (_btnMin.Contains(e.Location)) { Visible = false; return; }
-                if (_btnFull.Contains(e.Location)) { ToggleFullscreen(); return; }
-                if (_btnClose.Contains(e.Location)) { Close(); return; }
+                // 标题栏按钮和拖动已由 WndProc NC hit-test 处理
                 for (int i = 0; i < _rangeBtnRects.Length; i++) if (_rangeBtnRects[i].Contains(e.Location)) { _chartRangeSec = _rangeValues[i]; Invalidate(); _saveTimer.Stop(); _saveTimer.Start(); return; }
                 if (e.Y >= _evtY && e.Y < _evtY + _evtH) { ShowEventPopup(); return; }
-                if (e.Y < _titleBarH && !_clickThrough && !_fullscreen) { Native.ReleaseCapture(); Native.SendMessage(Handle, Native.WM_NCLBUTTONDOWN, Native.HTCAPTION, IntPtr.Zero); }
             }
             if (e.Button == MouseButtons.Right && !_clickThrough) { Point pt = PointToScreen(e.Location); _menu.Show(pt); }
         }
@@ -898,22 +955,17 @@ namespace GameMonitor
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            bool hMin = _btnMin.Contains(e.Location), hFull = _btnFull.Contains(e.Location), hClose = _btnClose.Contains(e.Location);
+            // 标题栏按钮 hover 已由 WM_NCMOUSEMOVE 处理, 这里只管客户端元素
             bool hRange = false; for (int i = 0; i < _rangeBtnRects.Length; i++) if (_rangeBtnRects[i].Contains(e.Location)) { hRange = true; break; }
             bool hEvt = e.Y >= _evtY && e.Y < _evtY + _evtH;
-            if (hMin != _hoverMin || hFull != _hoverFull || hClose != _hoverClose || hRange != _hoverRange)
-            { _hoverMin = hMin; _hoverFull = hFull; _hoverClose = hClose; _hoverRange = hRange; Invalidate(new Rectangle(0, 0, ClientSize.Width, _titleBarH)); Invalidate(new Rectangle(0, _loadY, ClientSize.Width, _loadH)); }
-            Cursor = (hMin || hFull || hClose || hRange || hEvt) ? Cursors.Hand : Cursors.Default;
+            if (hRange != _hoverRange)
+            { _hoverRange = hRange; Invalidate(new Rectangle(0, _loadY, ClientSize.Width, _loadH)); }
+            Cursor = (hRange || hEvt) ? Cursors.Hand : Cursors.Default;
         }
 
         protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if (e.Button == MouseButtons.Right && !_clickThrough) _menu.Show(PointToScreen(e.Location)); }
 
-        protected override void OnDoubleClick(EventArgs e)
-        {
-            base.OnDoubleClick(e);
-            Point p = PointToClient(Cursor.Position);
-            if (p.Y < _titleBarH && p.X < _btnMin.X - (int)(4 * _sf)) ToggleFullscreen();
-        }
+        // 全屏切换: 双击标题栏由 WM_SYSCOMMAND SC_MAXIMIZE 处理, 右键菜单仍有全屏选项
 
         void ToggleFullscreen()
         {
@@ -947,6 +999,7 @@ namespace GameMonitor
             _menu.Items.Add(new ToolStripSeparator());
             _menu.Items.Add("切换点击穿透", null, delegate { ToggleThrough(); });
             _menu.Items.Add("重新定位到副屏", null, delegate { LocateSecondary(); SaveConfig(); });
+            _menu.Items.Add("切换全屏", null, delegate { ToggleFullscreen(); });
             _menu.Items.Add(new ToolStripSeparator());
             _menu.Items.Add("退出", null, delegate { Close(); });
             _tray = new NotifyIcon(); _tray.Text = "游戏性能监控"; _tray.Icon = BuildIcon(); _tray.ContextMenuStrip = _menu; _tray.Visible = true;
@@ -964,6 +1017,18 @@ namespace GameMonitor
 
         static Icon BuildIcon()
         {
+            // 从 exe 嵌入图标加载 (编译时 /win32icon:src/app.ico)
+            try
+            {
+                string exePath = Application.ExecutablePath;
+                if (!string.IsNullOrEmpty(exePath) && System.IO.File.Exists(exePath))
+                {
+                    Icon ic = Icon.ExtractAssociatedIcon(exePath);
+                    if (ic != null) return ic;
+                }
+            }
+            catch { }
+            // Fallback: 简易速度计图标
             using (Bitmap bmp = new Bitmap(16, 16))
             {
                 using (Graphics g = Graphics.FromImage(bmp)) { g.Clear(Color.FromArgb(10, 13, 18)); using (SolidBrush b = new SolidBrush(Theme.Gpu)) g.FillEllipse(b, 3, 9, 4, 4); using (Pen p = new Pen(Theme.Gpu, 1.6f)) { g.DrawLine(p, 2, 12, 5, 7); g.DrawLine(p, 5, 7, 8, 9); g.DrawLine(p, 8, 9, 12, 3); } }

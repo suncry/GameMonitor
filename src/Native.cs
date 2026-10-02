@@ -47,13 +47,29 @@ namespace GameMonitor
         public const uint WM_NCLBUTTONDOWN = 0xA1;
         public static IntPtr HTCAPTION = (IntPtr)0x2;
 
+        // ---- Snap Layout: 非客户端 hover 追踪 ----
+        [StructLayout(LayoutKind.Sequential)]
+        public struct TRACKMOUSEEVENT
+        {
+            public int cbSize;
+            public uint dwFlags;
+            public IntPtr hwndTrack;
+            public uint dwHoverTime;
+        }
+        public const uint TME_LEAVE = 0x00000002;
+        public const uint TME_NONCLIENT = 0x80000000;
+        [DllImport("user32.dll")]
+        public static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
         [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 
-        // ---- 使窗口在 Alt+Tab / 任务栏彻底隐身, 但保持可交互 ----
+        // ---- 使窗口支持 Snap Layout (不再隐身) ----
         public static void ApplyOverlayStyle(IntPtr handle)
         {
             int ex = GetWindowLong(handle, GWL_EXSTYLE);
-            ex |= WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+            ex |= WS_EX_TOPMOST;
+            ex &= ~WS_EX_NOACTIVATE;
+            ex &= ~WS_EX_TOOLWINDOW;
             SetWindowLong(handle, GWL_EXSTYLE, ex);
         }
 

@@ -2,6 +2,10 @@
 
 > 轻量级游戏性能实时监控 · 副屏常驻 · 零外部依赖 · C# 原生 WinForms
 
+<p align="center">
+  <img src="assets/logo.png" width="200" alt="GameMonitor Logo" />
+</p>
+
 GameMonitor 是一款面向 PC 玩家的实时性能监控工具，专为**副屏竖屏常驻**设计。通过 NVML 直连 GPU、Windows 内核 API 采集 CPU/内存、可选 LibreHardwareMonitor 读取主板传感器，以极低资源占用提供游戏场景下的关键性能指标与降频事件追踪。
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2011%2B-blue)
@@ -102,6 +106,7 @@ GameMonitor 是一款面向 PC 玩家的实时性能监控工具，专为**副�
 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe ^
   /target:winexe /platform:x64 /optimize+ ^
   /win32manifest:src\app.manifest ^
+  /win32icon:src\app.ico ^
   /out:GameMonitor.exe ^
   /r:System.dll /r:System.Core.dll /r:System.Drawing.dll ^
   /r:System.Windows.Forms.dll /r:System.Management.dll ^
@@ -117,14 +122,18 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe ^
 
 ```
 GameMonitor/
+├── assets/                      # 项目资源
+│   ├── logo.png                 # 项目 Logo
+│   └── icon.ico                 # 多尺寸图标 (256/128/64/48/32/16)
 ├── src/                        # 源码
 │   ├── Program.cs               # 入口 (DPI 感知 + 应用启动)
-│   ├── MonitorForm.cs           # 主界面 (布局引擎 + 绘制 + 交互)
+│   ├── MonitorForm.cs           # 主界面 (布局引擎 + 绘制 + 交互 + Snap Layout)
 │   ├── Collector.cs             # 统一采样器 (每秒一次, 组合多源)
 │   ├── Nvml.cs                  # NVIDIA NVML 直连 (P/Invoke)
 │   ├── Lhm.cs                   # LibreHardwareMonitor 反射加载 (可选)
 │   ├── EtwFps.cs                # ETW 帧率追踪 (开发中)
 │   ├── Native.cs                # Win32 API 封装
+│   ├── app.ico                  # 编译用图标 (/win32icon)
 │   └── app.manifest             # 提权 + DPI 声明
 ├── runtime/                    # 运行时依赖
 │   ├── GameMonitor.exe          # 编译产物
@@ -205,6 +214,13 @@ range=120       # 负载曲线时间范围 (60/120/300/600 秒)
 ---
 
 ## 版本历史
+
+### v6.1
+- **Logo / 应用图标**: 速度计造型 Logo, 多尺寸 ICO 嵌入 exe
+- **Windows 11 Snap Layout**: 支持快速分屏 (Win+Z / 悬停最大化按钮 / 拖拽到边缘)
+- **开始菜单**: 自动安装到 `%LOCALAPPDATA%\Programs\GameMonitor`, 开始菜单可搜索
+- **任务栏可见**: 窗口显示在任务栏, 可与其他应用分屏共存
+- **右键菜单**: 新增「切换全屏」选项
 
 ### v6.0
 - 游戏自动识别（进程名匹配库 + 状态机）
