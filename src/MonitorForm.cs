@@ -162,12 +162,13 @@ namespace GameMonitor
 
         protected override CreateParams CreateParams
         {
-            get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x8; cp.Style |= 0x10000; return cp; }
+            get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x8; cp.Style |= 0x40000 | 0x10000; return cp; }
         }
 
         // ---- Snap Layout 支持 + 四周缩放 ----
         protected override void WndProc(ref Message m)
         {
+            const int WM_NCCALCSIZE = 0x83;
             const int WM_NCHITTEST = 0x84;
             const int WM_NCLBUTTONDOWN = 0xA1;
             const int WM_SYSCOMMAND = 0x112;
@@ -176,6 +177,9 @@ namespace GameMonitor
             const int WM_SETCURSOR = 0x20;
             const int SC_MAXIMIZE = 0xF030;
             const int HTMINBUTTON = 8, HTMAXBUTTON = 9, HTCLOSE = 20;
+
+            // WS_THICKFRAME 会划出非客户区边框; 返回 0 让客户区 = 整个窗口 (无边框外观)
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero) { m.Result = IntPtr.Zero; return; }
 
             // 非客户端按钮点击 (标题栏按钮改为 NC hit-test 后 OnMouseDown 不会触发)
             if (m.Msg == WM_NCLBUTTONDOWN)
