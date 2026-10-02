@@ -1,0 +1,25 @@
+# Build artifacts (编译产物, 用户自行编译或从 Release 下载)
+*.exe
+*.pdb
+
+# IDE files
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs & temp
+*.log
+*.etl
+.temp/
+
+# Test/probe files (非核心源码)
+test_*.cs
+probe*.cs
+MemTest.cs
+LayoutCalc.cs
