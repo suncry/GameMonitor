@@ -162,7 +162,7 @@ namespace GameMonitor
 
         protected override CreateParams CreateParams
         {
-            get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x8; return cp; }
+            get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x8; cp.Style |= 0x10000; return cp; }
         }
 
         // ---- Snap Layout 支持 + 四周缩放 ----
@@ -222,24 +222,18 @@ namespace GameMonitor
                 { Cursor.Current = Cursors.Hand; m.Result = (IntPtr)1; return; }
             }
 
-            if (m.Msg == WM_NCHITTEST && !_clickThrough && !_fullscreen)
+            if (m.Msg == WM_NCHITTEST && !_clickThrough)
             {
-                base.WndProc(ref m);
-                if ((int)m.Result == 1)
+                // 从 lParam 解析屏幕坐标 (比 Cursor.Position 更可靠, 正确处理触摸/远程/测试场景)
+                long lp = (long)m.LParam;
+                int sx = (short)(lp & 0xFFFF);
+                int sy = (short)((lp >> 16) & 0xFFFF);
+                Point p = PointToClient(new Point(sx, sy));
+                int e = Math.Max(6, (int)(8 * _sf));
+                int w = ClientSize.Width, h = ClientSize.Height;
+                if (!_fullscreen)
                 {
-                    Point p = PointToClient(Cursor.Position);
-                    int e = Math.Max(6, (int)(8 * _sf));
-                    int w = ClientSize.Width, h = ClientSize.Height;
-                    // 标题栏: 按钮 → NC hit-test (启用 Snap Layout flyout), 其余 → 可拖动
-                    if (p.Y < _titleBarH)
-                    {
-                        if (_btnMin.Contains(p)) { m.Result = (IntPtr)HTMINBUTTON; return; }
-                        if (_btnFull.Contains(p)) { m.Result = (IntPtr)HTMAXBUTTON; return; }
-                        if (_btnClose.Contains(p)) { m.Result = (IntPtr)HTCLOSE; return; }
-                        if (p.X < _btnMin.X - (int)(4 * _sf)) { m.Result = (IntPtr)2; return; } // HTCAPTION
-                        return;
-                    }
-                    // 四角
+                    // 四角 (缩放优先级最高, 否则顶部边缘被标题栏吞掉)
                     if (p.X <= e && p.Y <= e) { m.Result = (IntPtr)13; return; }
                     if (p.X >= w - e && p.Y <= e) { m.Result = (IntPtr)14; return; }
                     if (p.X <= e && p.Y >= h - e) { m.Result = (IntPtr)16; return; }
@@ -250,7 +244,15 @@ namespace GameMonitor
                     if (p.X >= w - e) { m.Result = (IntPtr)11; return; }
                     if (p.Y >= h - e) { m.Result = (IntPtr)15; return; }
                 }
-                return;
+                // 标题栏: 按钮 → NC hit-test (启用 Snap Layout flyout), 其余 → 可拖动
+                if (p.Y < _titleBarH)
+                {
+                    if (_btnMin.Contains(p)) { m.Result = (IntPtr)HTMINBUTTON; return; }
+                    if (_btnFull.Contains(p)) { m.Result = (IntPtr)HTMAXBUTTON; return; }
+                    if (_btnClose.Contains(p)) { m.Result = (IntPtr)HTCLOSE; return; }
+                    if (p.X < _btnMin.X - (int)(4 * _sf)) { m.Result = (IntPtr)2; return; } // HTCAPTION
+                }
+                m.Result = (IntPtr)1; return; // HTCLIENT
             }
             base.WndProc(ref m);
         }
